@@ -6,8 +6,11 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <vector>
 #include <unordered_map>
 
 #include <errno.h>
@@ -148,6 +151,96 @@ SocketStatePtr accept_connection(
 
 ////////////////////////////////////////////////////////////////////////////////
 
+template <typename k, typename v>
+class persistent_hash_map {
+private:
+    std::vector<k> log_k;
+    std::vector<v> log_v;
+    std::unordered_map<k, v> map;
+    std::thread write_thread;
+    std::string log_path = "log.txt";
+    std::string map_path = "map.txt";
+    std::mutex mutex;
+    uint64_t flush_size = -1;
+    bool shutdown_flag = false;
+
+    void write_thread_func() {
+        while (!shutdown_flag) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (shutdown_flag)
+                break;
+            std::lock_guard<std::mutex> g(mutex);
+            std::ofstream map_stream(map_path, std::ofstream::out | std::ofstream::trunc);
+            uint64_t counter = 0;
+            for (auto& el: map) {
+                map_stream << el.first << " " << el.second << "\n";
+                counter++;
+                if (flush_size > 0 && flush_size >= counter) {
+                    map_stream.flush();
+                    counter = 0;
+                }
+            }
+            map_stream.flush();
+            log_k.clear();
+            log_v.clear();
+
+            map_stream.close();
+        }
+    }
+
+    void read_data() {
+        std::lock_guard<std::mutex> g(mutex);
+        std::ifstream map_stream_in(map_path);
+        k key;
+        v val;
+        while (map_stream_in >> key >> val) {
+            map[key] = val;
+        }
+        map_stream_in.close();
+        std::ifstream log_stream_in(log_path);
+        while (log_stream_in >> key >> val) {
+            map[key] = val;
+            log_k.emplace_back(key);
+            log_v.emplace_back(val);
+        }
+        log_stream_in.close();
+    }
+
+public:
+    persistent_hash_map(){
+        read_data();
+        write_thread = std::thread([this] { write_thread_func(); });
+    }
+
+    ~persistent_hash_map(){
+        shutdown_flag = true;
+        write_thread.join();
+        std::ofstream log_stream(log_path, std::ofstream::out | std::ofstream::trunc);
+        for (std::size_t i = 0; i < log_k.size(); i++) {
+            log_stream << log_k[i] << " " << log_v[i] << "\n";
+        }
+        log_stream.flush();
+        log_stream.close();
+    }
+
+    void insert(const k& key, const v& value) {
+        std::lock_guard<std::mutex> g(mutex);
+        log_k.emplace_back(key);
+        log_v.emplace_back(value);
+        map[key] = value;
+    }
+
+    bool find_and_fill_t(const k& key, v& t) {
+        std::lock_guard<std::mutex> g(mutex);
+        auto it = map.find(key);
+        if (it != map.end()) {
+            t = it->second;
+            return true;
+        }
+        return false;
+    }
+};
+
 int main(int argc, const char** argv)
 {
     if (argc < 2) {
@@ -191,8 +284,8 @@ int main(int argc, const char** argv)
      * handler function
      */
 
-    // TODO on-disk storage
-    std::unordered_map<std::string, uint64_t> storage;
+    //std::unordered_map<std::string, uint64_t> storage;
+    persistent_hash_map<std::string, uint64_t> storage;
 
     auto handle_get = [&] (const std::string& request) {
         NProto::TGetRequest get_request;
@@ -206,9 +299,13 @@ int main(int argc, const char** argv)
 
         NProto::TGetResponse get_response;
         get_response.set_request_id(get_request.request_id());
-        auto it = storage.find(get_request.key());
-        if (it != storage.end()) {
-            get_response.set_offset(it->second);
+//        auto it = storage.find(get_request.key());
+//        if (it != storage.end()) {
+//            get_response.set_offset(it->second);
+//        }
+        uint64_t t;
+        if (storage.find_and_fill_t(get_request.key(), t)) {
+            get_response.set_offset(t);
         }
 
         std::stringstream response;
@@ -228,7 +325,8 @@ int main(int argc, const char** argv)
 
         LOG_DEBUG_S("put_request: " << put_request.ShortDebugString());
 
-        storage[put_request.key()] = put_request.offset();
+        storage.insert(put_request.key(), put_request.offset());
+        //storage[put_request.key()] = put_request.offset();
 
         NProto::TPutResponse put_response;
         put_response.set_request_id(put_request.request_id());

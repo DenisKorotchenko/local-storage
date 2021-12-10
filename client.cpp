@@ -60,6 +60,8 @@ int main(int argc, const char** argv) {
      * socket initialization
      */
 
+    auto start_time = std::chrono::steady_clock::now();
+
     int socketfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
     if (socketfd == -1) {
         return 1;
@@ -257,6 +259,8 @@ int main(int argc, const char** argv) {
     }
 
     close(socketfd);
+
+    LOG_INFO_S("Finish. Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count() << "ms");
 
     return 0;
 }
