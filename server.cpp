@@ -10,7 +10,6 @@
 #include <sstream>
 #include <string>
 #include <thread>
-#include <vector>
 #include <unordered_map>
 
 #include <errno.h>
@@ -154,8 +153,6 @@ SocketStatePtr accept_connection(
 template <typename k, typename v>
 class persistent_hash_map {
 private:
-    std::vector<k> log_k;
-    std::vector<v> log_v;
     std::unordered_map<k, v> map;
     std::thread write_thread;
     std::string log_path = "log.txt";
