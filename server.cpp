@@ -199,8 +199,6 @@ private:
         std::ifstream log_stream_in(log_path);
         while (log_stream_in >> key >> val) {
             map[key] = val;
-            log_k.emplace_back(key);
-            log_v.emplace_back(val);
         }
         log_stream_in.close();
     }
@@ -208,8 +206,8 @@ private:
 public:
     persistent_hash_map(){
         read_data();
-        write_thread = std::thread([this] { write_thread_func(); });
         log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
+        write_thread = std::thread([this] { write_thread_func(); });
     }
 
     ~persistent_hash_map(){
