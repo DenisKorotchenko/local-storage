@@ -3,6 +3,7 @@
 #include "protocol.h"
 #include "rpc.h"
 
+#include <atomic>
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -159,7 +160,7 @@ private:
     std::string map_path = "map.txt";
     std::mutex mutex;
     uint64_t flush_size = -1;
-    bool shutdown_flag = false;
+    std::atomic<bool> shutdown_flag;
     std::ofstream log_stream;
 
     void write_thread_func() {
@@ -205,6 +206,7 @@ private:
 public:
     persistent_hash_map(){
         std::lock_guard<std::mutex> g(mutex);
+        shutdown_flag = false;
         read_data();
         log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
         write_thread = std::thread([this] { write_thread_func(); });
