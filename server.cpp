@@ -163,6 +163,7 @@ private:
     std::mutex mutex;
     uint64_t flush_size = -1;
     bool shutdown_flag = false;
+    std::ofstream log_stream;
 
     void write_thread_func() {
         while (!shutdown_flag) {
@@ -181,8 +182,9 @@ private:
                 }
             }
             map_stream.flush();
-            log_k.clear();
-            log_v.clear();
+            log_stream.flush();
+            log_stream.close();
+            log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
 
             map_stream.close();
         }
@@ -210,23 +212,19 @@ public:
     persistent_hash_map(){
         read_data();
         write_thread = std::thread([this] { write_thread_func(); });
+        log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
     }
 
     ~persistent_hash_map(){
         shutdown_flag = true;
         write_thread.join();
-        std::ofstream log_stream(log_path, std::ofstream::out | std::ofstream::trunc);
-        for (std::size_t i = 0; i < log_k.size(); i++) {
-            log_stream << log_k[i] << " " << log_v[i] << "\n";
-        }
         log_stream.flush();
         log_stream.close();
     }
 
     void insert(const k& key, const v& value) {
         std::lock_guard<std::mutex> g(mutex);
-        log_k.emplace_back(key);
-        log_v.emplace_back(value);
+        log_stream << key << " " << value << "\n";
         map[key] = value;
     }
 
