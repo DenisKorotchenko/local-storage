@@ -164,10 +164,8 @@ private:
 
     void write_thread_func() {
         while (!shutdown_flag) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
             if (shutdown_flag)
                 break;
-            std::lock_guard<std::mutex> g(mutex);
             std::ofstream map_stream(map_path, std::ofstream::out | std::ofstream::trunc);
             uint64_t counter = 0;
             for (auto& el: map) {
@@ -184,11 +182,12 @@ private:
             log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
 
             map_stream.close();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
 
     void read_data() {
-        std::lock_guard<std::mutex> g(mutex);
+        //std::lock_guard<std::mutex> g(mutex);
         std::ifstream map_stream_in(map_path);
         k key;
         v val;
@@ -205,6 +204,7 @@ private:
 
 public:
     persistent_hash_map(){
+        std::lock_guard<std::mutex> g(mutex);
         read_data();
         log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
         write_thread = std::thread([this] { write_thread_func(); });
