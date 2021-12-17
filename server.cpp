@@ -154,53 +154,74 @@ SocketStatePtr accept_connection(
 template <typename k, typename v>
 class persistent_hash_map {
 private:
-    std::unordered_map<k, v> map;
+    std::unordered_map<k, std::pair<uint64_t, v>> map[2];
     std::thread write_thread;
-    std::string log_path = "log.txt";
-    std::string map_path = "map.txt";
+    std::string log_path[2] = {"log1.txt", "log2.txt"};
+    std::string map_path[2] = {"map1.txt", "map2.txt"};
     std::mutex mutex;
+    uint64_t active_ind = 0;
+    uint64_t cur_v_i = 1;
     uint64_t flush_size = -1;
     std::atomic<bool> shutdown_flag;
     std::ofstream log_stream;
 
+    std::unordered_map<k, std::pair<uint64_t, v>>& active() {
+        return map[active_ind % 2];
+    }
+
+    std::unordered_map<k, std::pair<uint64_t, v>>& inactive() {
+        return map[(active_ind + 1) % 2];
+    }
+
     void write_thread_func() {
         while (!shutdown_flag) {
-            if (shutdown_flag)
-                break;
-            std::ofstream map_stream(map_path, std::ofstream::out | std::ofstream::trunc);
+            std::ofstream map_stream(map_path[(active_ind + 1) % 2], std::ofstream::out | std::ofstream::trunc);
             uint64_t counter = 0;
-            for (auto& el: map) {
-                map_stream << el.first << " " << el.second << "\n";
-                counter++;
+            for (auto& el: inactive()) {
+                map_stream << el.first << " " << el.second.first << " " << el.second.second << "\n";
                 if (flush_size > 0 && flush_size >= counter) {
                     map_stream.flush();
                     counter = 0;
                 }
             }
             map_stream.flush();
-            log_stream.flush();
-            log_stream.close();
-            log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
-
             map_stream.close();
             std::this_thread::sleep_for(std::chrono::seconds(1));
+
+            std::lock_guard<std::mutex> g(mutex);
+            active_ind++;
+            log_stream.flush();
+            log_stream.close();
+            log_stream.open(log_path[active_ind % 2], std::ofstream::out | std::ofstream::trunc);
         }
     }
 
     void read_data() {
         //std::lock_guard<std::mutex> g(mutex);
-        std::ifstream map_stream_in(map_path);
+        std::ifstream map_stream_in0(map_path[0]);
         k key;
         v val;
-        while (map_stream_in >> key >> val) {
-            map[key] = val;
+        uint64_t v_i;
+        while (map_stream_in0 >> key >> v_i >> val) {
+            map[0][key] = {v_i, val};
         }
-        map_stream_in.close();
-        std::ifstream log_stream_in(log_path);
-        while (log_stream_in >> key >> val) {
-            map[key] = val;
+        map_stream_in0.close();
+        std::ifstream log_stream_in0(log_path[0]);
+        while (log_stream_in0 >> key >> v_i >> val) {
+            map[0][key] = {v_i, val};
         }
-        log_stream_in.close();
+        log_stream_in0.close();
+
+        std::ifstream map_stream_in1(map_path[1]);
+        while (map_stream_in1 >> key >> v_i >> val) {
+            map[1][key] = {v_i, val};
+        }
+        map_stream_in1.close();
+        std::ifstream log_stream_in1(log_path[1]);
+        while (log_stream_in1 >> key >> v_i >> val) {
+            map[1][key] = {v_i, val};
+        }
+        log_stream_in1.close();
     }
 
 public:
@@ -208,7 +229,7 @@ public:
         std::lock_guard<std::mutex> g(mutex);
         shutdown_flag = false;
         read_data();
-        log_stream.open(log_path, std::ofstream::out | std::ofstream::trunc);
+        log_stream.open(log_path[active_ind % 2], std::ofstream::out | std::ofstream::trunc);
         write_thread = std::thread([this] { write_thread_func(); });
     }
 
@@ -221,15 +242,25 @@ public:
 
     void insert(const k& key, const v& value) {
         std::lock_guard<std::mutex> g(mutex);
-        log_stream << key << " " << value << "\n";
-        map[key] = value;
+        log_stream << key << " " << cur_v_i << " " << value << "\n";
+        map[active_ind % 2][key] = {cur_v_i, value};
+        cur_v_i++;
     }
 
     bool find_and_fill_t(const k& key, v& t) {
         std::lock_guard<std::mutex> g(mutex);
-        auto it = map.find(key);
-        if (it != map.end()) {
-            t = it->second;
+        auto it = map[0].find(key);
+        uint64_t cur_v = 0;
+        if (it != map[0].end()) {
+            cur_v = it->second.first;
+            t = it->second.second;
+        }
+        it = map[1].find(key);
+        if (it != map[1].end() && it->second.first > cur_v) {
+            cur_v = it->second.first;
+            t = it->second.second;
+        }
+        if (cur_v > 0) {
             return true;
         }
         return false;
