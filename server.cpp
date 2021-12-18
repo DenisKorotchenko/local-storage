@@ -204,22 +204,34 @@ private:
         uint64_t v_i;
         while (map_stream_in0 >> key >> v_i >> val) {
             map[0][key] = {v_i, val};
+            if (v_i + 1 > cur_v_i) {
+                cur_v_i = v_i + 1;
+            }
         }
         map_stream_in0.close();
         std::ifstream log_stream_in0(log_path[0]);
         while (log_stream_in0 >> key >> v_i >> val) {
             map[0][key] = {v_i, val};
+            if (v_i + 1 > cur_v_i) {
+                cur_v_i = v_i + 1;
+            }
         }
         log_stream_in0.close();
 
         std::ifstream map_stream_in1(map_path[1]);
         while (map_stream_in1 >> key >> v_i >> val) {
             map[1][key] = {v_i, val};
+            if (v_i + 1 > cur_v_i) {
+                cur_v_i = v_i + 1;
+            }
         }
         map_stream_in1.close();
         std::ifstream log_stream_in1(log_path[1]);
         while (log_stream_in1 >> key >> v_i >> val) {
             map[1][key] = {v_i, val};
+            if (v_i + 1 > cur_v_i) {
+                cur_v_i = v_i + 1;
+            }
         }
         log_stream_in1.close();
     }
